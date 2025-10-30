@@ -10,6 +10,7 @@ const navigation = [
   { name: "Projects", href: "/projects" },
   { name: "Leaderboard", href: "/leaderboard" },
   { name: "Badges", href: "/badges" },
+  { name: "Profile", href: "/profile" },
 ];
 
 export function Navigation() {
