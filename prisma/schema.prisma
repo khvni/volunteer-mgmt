@@ -1,0 +1,430 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Volunteer {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Personal Information
+  firstName   String
+  lastName    String
+  dateOfBirth DateTime?
+  gender      Gender?
+  nationality String?
+  idNumber    String?   @unique // IC number or passport
+
+  // Contact Information
+  phone          String  @unique
+  email          String  @unique
+  whatsappNumber String?
+  address        String?
+  city           String?
+  state          String?
+  postcode       String?
+
+  // Emergency Contact
+  emergencyName     String?
+  emergencyPhone    String?
+  emergencyRelation String?
+
+  // Volunteer Profile
+  photoUrl     String?
+  bio          String?   @db.Text
+  skills       String[] // ["event_management", "first_aid", "teaching"]
+  languages    String[] // ["english", "bahasa", "mandarin"]
+  interests    String[] // ["homeless_care", "food_distribution", "education"]
+  availability Json? // { "monday": ["morning", "evening"], "saturday": ["full_day"] }
+
+  // Volunteer Status
+  status     VolunteerStatus @default(ACTIVE)
+  verified   Boolean         @default(false)
+  verifiedAt DateTime?
+  tier       VolunteerTier   @default(BRONZE)
+
+  // Gamification
+  totalHours   Decimal       @default(0) @db.Decimal(10, 2)
+  points       Int           @default(0)
+  badges       Badge[]
+  achievements Achievement[]
+
+  // Relationships
+  assignments  VolunteerAssignment[]
+  attendances  VolunteerAttendance[]
+  reviews      VolunteerReview[]
+  connections  VolunteerConnection[] @relation("VolunteerConnections")
+  connectedBy  VolunteerConnection[] @relation("ConnectedVolunteers")
+  messages     Message[]
+
+  // User Account
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String? @unique
+
+  // Metadata
+  source       String? // "website", "referral", "event"
+  referredBy   Volunteer?  @relation("VolunteerReferrals", fields: [referredById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  referredById String?
+  referrals    Volunteer[] @relation("VolunteerReferrals")
+
+  @@index([status])
+  @@index([tier])
+  @@index([email])
+  @@index([phone])
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Project Information
+  title       String
+  description String          @db.Text
+  type        ProjectType
+  category    ProjectCategory
+  location    String
+  state       String?
+  coordinates Json? // { lat, lng }
+
+  // Dates & Capacity
+  startDate        DateTime
+  endDate          DateTime?
+  isRecurring      Boolean  @default(false)
+  recurringPattern String? // "weekly", "monthly"
+
+  volunteersNeeded Int
+  volunteersJoined Int     @default(0)
+
+  // Requirements
+  minAge         Int?
+  requiredSkills String[] // ["first_aid", "driving_license"]
+  physicalDemand PhysicalDemand?
+
+  // Status
+  status   ProjectStatus @default(DRAFT)
+  priority Priority      @default(MEDIUM)
+
+  // Media
+  imageUrl String?
+  images   String[]
+
+  // Gamification
+  pointsReward Int     @default(10)
+  badgeReward  String? // Badge ID to award on completion
+
+  // Relationships
+  assignments      VolunteerAssignment[]
+  attendances      VolunteerAttendance[]
+  volunteerReviews VolunteerReview[]
+  projectReviews   ProjectReview[]
+  createdBy        User                  @relation(fields: [createdById], references: [id])
+  createdById      String
+
+  @@index([status])
+  @@index([type])
+  @@index([startDate])
+}
+
+model VolunteerAssignment {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  volunteer   Volunteer @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  volunteerId String
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  // Assignment Details
+  status             AssignmentStatus @default(PENDING)
+  role               String? // "team_leader", "coordinator", "volunteer"
+  assignedAt         DateTime         @default(now())
+  confirmedAt        DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  // Hours Tracking
+  clockInTime   DateTime?
+  clockOutTime  DateTime?
+  hoursWorked   Decimal?  @db.Decimal(10, 2)
+  hoursApproved Decimal?  @db.Decimal(10, 2)
+
+  // Points & Rewards
+  pointsEarned Int     @default(0)
+  badgeAwarded String?
+
+  @@unique([volunteerId, projectId])
+  @@index([volunteerId])
+  @@index([projectId])
+  @@index([status])
+}
+
+model VolunteerAttendance {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  volunteer   Volunteer @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  volunteerId String
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  // Check-in/Check-out
+  checkInTime  DateTime
+  checkOutTime DateTime?
+  location     Json? // GPS coordinates
+  photoUrl     String? // Check-in photo
+
+  // Hours
+  hoursWorked  Decimal?  @db.Decimal(10, 2)
+  approved     Boolean   @default(false)
+  approvedBy   User?     @relation(fields: [approvedById], references: [id])
+  approvedById String?
+  approvedAt   DateTime?
+
+  notes String?
+
+  @@index([volunteerId])
+  @@index([projectId])
+  @@index([checkInTime])
+}
+
+model Badge {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+
+  name        String
+  description String
+  icon        String
+  category    BadgeCategory
+  rarity      BadgeRarity
+
+  // Requirements to earn
+  requirement Json // { "type": "hours", "value": 50 }
+
+  volunteers Volunteer[]
+
+  @@index([category])
+}
+
+model Achievement {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+
+  volunteer   Volunteer @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  volunteerId String
+
+  type        String // "hours_milestone", "project_completed", "skill_earned"
+  title       String
+  description String
+  icon        String
+  points      Int
+  metadata    Json?
+
+  @@index([volunteerId])
+  @@index([type])
+}
+
+model VolunteerConnection {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  volunteer   Volunteer @relation("VolunteerConnections", fields: [volunteerId], references: [id], onDelete: Cascade)
+  volunteerId String
+
+  connectedWith   Volunteer @relation("ConnectedVolunteers", fields: [connectedWithId], references: [id], onDelete: Cascade)
+  connectedWithId String
+
+  status  ConnectionStatus @default(PENDING)
+  message String?
+
+  @@unique([volunteerId, connectedWithId])
+  @@index([volunteerId])
+  @@index([connectedWithId])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  sender   Volunteer @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderId String
+
+  recipientId String?
+  projectId   String? // For project group chats
+
+  content String   @db.Text
+  read    Boolean  @default(false)
+  readAt  DateTime?
+
+  @@index([senderId])
+  @@index([recipientId])
+  @@index([projectId])
+}
+
+model VolunteerReview {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  volunteer   Volunteer @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  volunteerId String
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  rating  Int     @default(5) // 1-5
+  comment String? @db.Text
+
+  reviewedBy   User   @relation(fields: [reviewedById], references: [id])
+  reviewedById String
+
+  @@index([volunteerId])
+  @@index([projectId])
+}
+
+model ProjectReview {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  rating  Int     @default(5) // 1-5
+  comment String? @db.Text
+
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdById String
+
+  @@index([projectId])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  role         UserRole
+  organization String?
+
+  // Relations
+  volunteer           Volunteer?
+  createdProjects     Project[]
+  approvedAttendances VolunteerAttendance[]
+  volunteerReviews    VolunteerReview[]
+  projectReviews      ProjectReview[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Enums
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum VolunteerStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum VolunteerTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+}
+
+enum ProjectType {
+  ONE_TIME
+  RECURRING
+  CAMPAIGN
+  EMERGENCY
+}
+
+enum ProjectCategory {
+  HOMELESS_CARE
+  FOOD_DISTRIBUTION
+  EDUCATION
+  HEALTHCARE
+  DISASTER_RELIEF
+  FUNDRAISING
+  ADMIN_SUPPORT
+  EVENT_MANAGEMENT
+  OTHER
+}
+
+enum ProjectStatus {
+  DRAFT
+  PUBLISHED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AssignmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum PhysicalDemand {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum BadgeCategory {
+  HOURS
+  PROJECTS
+  SKILLS
+  LEADERSHIP
+  SPECIAL
+}
+
+enum BadgeRarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+enum ConnectionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  BLOCKED
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  STAFF
+  VOLUNTEER_COORDINATOR
+  VOLUNTEER
+}
